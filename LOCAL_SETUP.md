@@ -37,150 +37,146 @@ File > Project Structure > Project
 
 ### 2. Inicializar Ambiente
 
-#### 2.1 Subir Infraestrutura
+#### 2.1 Subir Infraestrutura (PostgreSQL, Redis, Kafka)
 ```bash
 # Na pasta raiz do projeto
 cd C:\Users\Andrei\workspace\inventory
 docker-compose -f docker-compose-local.yml up -d
 ```
 
-#### 2.2 Aguardar Serviços (2-3 minutos)
+#### 2.2 Aguardar Serviços Estarem Prontos (2-3 minutos)
 ```bash
 # Verificar se PostgreSQL está pronto
 docker exec inventory-postgres pg_isready -U inventory_user -d inventory_db
+
+# Verificar se Redis está pronto
+docker exec inventory-redis redis-cli ping
+
+# Verificar logs do Kafka (opcional)
+docker logs inventory-kafka
 ```
 
-#### 2.3 Executar Migrações do Banco
-```bash
-# Migração para todos os serviços
-mvn flyway:migrate
+### 3. Executar os Microsserviços
 
-# Ou individual por serviço:
-cd inventory-service && mvn flyway:migrate
-cd ../store-service && mvn flyway:migrate  
-cd ../notification-service && mvn flyway:migrate
+#### 3.1 Compilar o Projeto
+```bash
+# Na pasta raiz do projeto
+mvn clean install -DskipTests
 ```
 
-#### 2.4 Inserir Dados de Teste
+#### 3.2 Iniciar os Serviços (via IntelliJ - Recomendado)
+
+**No IntelliJ IDEA:**
+1. Localize as classes `*Application.java` de cada serviço:
+   - `inventory-service/src/main/java/.../InventoryServiceApplication.java`
+   - `store-service/src/main/java/.../StoreServiceApplication.java`
+   - `notification-service/src/main/java/.../NotificationServiceApplication.java`
+   - `api-gateway/src/main/java/.../ApiGatewayApplication.java`
+
+2. **Clique com botão direito** em cada classe → **"Run"**
+3. **As migrações Flyway executarão automaticamente** durante o startup
+4. Aguarde cada serviço inicializar completamente
+
+#### 3.3 Ou Executar via Terminal (Alternativo)
 ```bash
-# Windows
+# Terminal 1 - Inventory Service
+cd inventory-service
+mvn spring-boot:run
+
+# Terminal 2 - Store Service  
+cd store-service
+mvn spring-boot:run
+
+# Terminal 3 - Notification Service
+cd notification-service
+mvn spring-boot:run
+
+# Terminal 4 - API Gateway
+cd api-gateway
+mvn spring-boot:run
+```
+
+### 4. Verificar se Está Funcionando
+
+#### 4.1 Health Checks
+```bash
+# Inventory Service
+curl http://localhost:8080/actuator/health
+
+# Store Service
+curl http://localhost:8081/actuator/health
+
+# Notification Service  
+curl http://localhost:8082/actuator/health
+
+# API Gateway
+curl http://localhost:8000/actuator/health
+```
+
+#### 4.2 Verificar Banco de Dados
+```bash
+# Conectar ao PostgreSQL e verificar se as tabelas foram criadas
+docker exec -it inventory-postgres psql -U inventory_user -d inventory_db
+
+# No PostgreSQL, verificar se as migrações Flyway funcionaram:
+\dt  # Listar tabelas (deve mostrar inventory_items, stock_reservations, etc.)
+\q   # Sair
+```
+
+#### 4.3 APIs Disponíveis
+- **Swagger UI**: http://localhost:8080/swagger-ui.html
+- **API Gateway**: http://localhost:8000
+- **Inventory Service**: http://localhost:8080
+- **Store Service**: http://localhost:8081
+- **Notification Service**: http://localhost:8082
+
+### 5. Dados de Teste (Opcional)
+
+```bash
+# Inserir dados de teste no banco
+# Windows:
 insert-test-data.bat
 
-# Linux/Mac  
+# Linux/Mac:
 chmod +x insert-test-data.sh
 ./insert-test-data.sh
 ```
 
-### 3. Executar Microserviços no IntelliJ
+## 🔧 Troubleshooting
 
-**Ordem recomendada:**
+### Problema: Flyway migration error
+**Causa**: Banco não inicializou completamente
+**Solução**: 
+1. Aguardar PostgreSQL estar 100% pronto
+2. Reiniciar a aplicação - as migrações executarão automaticamente
 
-1. **Shared Module** (compilar apenas): `mvn clean install`
-2. **Inventory Service** → `InventoryServiceApplication.java`
-3. **Store Service** → `StoreServiceApplication.java`
-4. **Notification Service** → `NotificationServiceApplication.java`
-5. **Observability Service** → `ObservabilityApplication.java`
-6. **API Gateway** → `ApiGatewayApplication.java`
-
-### 4. Configurações das Run Configurations
-
-Para cada microserviço, configure:
-```
-Main class: com.enterprise.{service}.{Service}Application
-VM options: -Dspring.profiles.active=dev
-Environment variables: 
-  SPRING_PROFILES_ACTIVE=dev
-  JAVA_TOOL_OPTIONS=-XX:+UseG1GC -Xmx512m
-```
-
-## 🌐 URLs dos Serviços
-
-| Serviço | URL | Porta |
-|---------|-----|-------|
-| API Gateway | http://localhost:8088 | 8088 |
-| Inventory Service | http://localhost:8080 | 8080 |
-| Store Service | http://localhost:8081 | 8081 |
-| Notification Service | http://localhost:8082 | 8082 |
-| Observability | http://localhost:8083 | 8083 |
-| Kafka UI | http://localhost:8090 | 8090 |
-| Prometheus | http://localhost:9090 | 9090 |
-| Grafana | http://localhost:3000 | 3000 |
-| Jaeger | http://localhost:16686 | 16686 |
-
-## 🧪 Testando a API
-
-### Headers obrigatórios:
-```
-X-API-Key: enterprise-api-key-2023
-Content-Type: application/json
-```
-
-### Exemplos de testes:
+### Problema: Port already in use
+**Solução**: 
 ```bash
-# 1. Listar todas as lojas
-curl -H "X-API-Key: enterprise-api-key-2023" \
-     http://localhost:8088/api/v1/stores
-
-# 2. Buscar produtos
-curl -H "X-API-Key: enterprise-api-key-2023" \
-     http://localhost:8088/api/v1/inventory/products
-
-# 3. Verificar estoque por loja
-curl -H "X-API-Key: enterprise-api-key-2023" \
-     http://localhost:8088/api/v1/inventory/stock
-
-# 4. Alertas ativos
-curl -H "X-API-Key: enterprise-api-key-2023" \
-     http://localhost:8088/api/v1/notifications/alerts
-```
-
-## 🛠️ Troubleshooting
-
-### IntelliJ não reconhece módulos Maven:
-```bash
-1. File > Invalidate Caches and Restart
-2. Delete .idea folder e reimporte
-3. Maven > Reload Projects
-4. File > Project Structure > Modules > Verificar módulos
-```
-
-### Erro de dependências:
-```bash
-mvn clean install -U
-```
-
-### Problemas com banco de dados:
-```bash
-# Verificar logs
-docker-compose -f docker-compose-local.yml logs postgres
-
-# Reiniciar containers
-docker-compose -f docker-compose-local.yml restart
-```
-
-### Porta já em uso:
-```bash
-# Windows - verificar portas
+# Verificar o que está usando a porta
 netstat -ano | findstr :8080
-
-# Matar processo
-taskkill /PID {PID} /F
+# Terminar o processo ou usar outra porta
 ```
 
-## 📊 Dados de Teste Inseridos
+### Problema: Docker containers não sobem
+**Solução**:
+```bash
+# Limpar containers antigos
+docker-compose -f docker-compose-local.yml down --volumes
+docker system prune -f
 
-- **5 Lojas** (Centro, Ibirapuera, Paulista, Vila Madalena, Morumbi)
-- **5 Categorias** (Eletrônicos, Roupas, Casa e Jardim, Esportes, Livros)
-- **5 Produtos** (Galaxy S23, Dell Inspiron, Camiseta Polo, Tênis Nike, Livro Clean Code)
-- **11 Registros de Inventário** (distribuídos pelas lojas)
-- **5 Movimentações de Estoque** (entradas, saídas, ajustes)
-- **4 Fornecedores** (Samsung, Dell, Nike, Pearson)
-- **3 Alertas** (estoque baixo e manutenção)
+# Subir novamente
+docker-compose -f docker-compose-local.yml up -d
+```
 
-## 🎯 Próximos Passos
+## ✅ Pronto!
 
-1. Testar endpoints via Postman/curl
-2. Verificar métricas no Grafana
-3. Monitorar logs no Jaeger
-4. Criar novos produtos via API
-5. Simular alertas de estoque baixo
+Agora você tem um ambiente completo de microsserviços rodando localmente com:
+- ✅ PostgreSQL com bancos separados por serviço
+- ✅ Redis para cache e rate limiting  
+- ✅ Kafka para eventos entre serviços
+- ✅ **Migrações Flyway executando automaticamente**
+- ✅ Observabilidade com Prometheus/Grafana
+- ✅ Documentação API via Swagger
+
+**Importante**: As migrações do banco são **automáticas** - não precisa executar Flyway manualmente! 🚀
