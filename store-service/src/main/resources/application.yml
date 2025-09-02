@@ -1,0 +1,39 @@
+spring:
+  application:
+    name: store-service
+
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:inventory_db}
+    username: ${DB_USERNAME:inventory_user}
+    password: ${DB_PASSWORD:inventory_pass}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+    show-sql: false
+
+  # Flyway Configuration
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 0
+    locations: classpath:db/migration
+    sql-migration-suffixes: .sql
+    validate-on-migrate: true
+    clean-disabled: true
+
+# Server Configuration
+server:
+  port: ${SERVER_PORT:8081}
+
+# Logging Configuration
+logging:
+  level:
+    com.enterprise.store: INFO

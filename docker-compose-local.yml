@@ -1,0 +1,163 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: inventory-postgres
+    environment:
+      POSTGRES_DB: inventory_db
+      POSTGRES_USER: inventory_user
+      POSTGRES_PASSWORD: inventory_pass
+      POSTGRES_MULTIPLE_DATABASES: inventory_db,store_db,notification_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db-local.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - inventory-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inventory_user -d inventory_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for caching and rate limiting
+  redis:
+    image: redis:7-alpine
+    container_name: inventory-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - inventory-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Kafka with Zookeeper
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: inventory-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - inventory-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: inventory-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    networks:
+      - inventory-network
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Kafka UI for monitoring
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: inventory-kafka-ui
+    depends_on:
+      - kafka
+    ports:
+      - "8090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+    networks:
+      - inventory-network
+
+  # Prometheus for metrics
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: inventory-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus-local.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - inventory-network
+
+  # Grafana for dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: inventory-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - inventory-network
+
+  # Jaeger for distributed tracing
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: inventory-jaeger
+    ports:
+      - "16686:16686"
+      - "14268:14268"
+    environment:
+      COLLECTOR_OTLP_ENABLED: true
+    networks:
+      - inventory-network
+
+  # InfluxDB for time series data
+  influxdb:
+    image: influxdb:2.7-alpine
+    container_name: inventory-influxdb
+    ports:
+      - "8086:8086"
+    environment:
+      INFLUXDB_DB: inventory_metrics
+      INFLUXDB_ADMIN_USER: admin
+      INFLUXDB_ADMIN_PASSWORD: admin123
+      INFLUXDB_USER: inventory_user
+      INFLUXDB_USER_PASSWORD: inventory_pass
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+    networks:
+      - inventory-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+  influxdb_data:
+
+networks:
+  inventory-network:
+    driver: bridge

@@ -1,0 +1,135 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory-service
+  namespace: inventory-system
+  labels:
+    app: inventory-service
+    version: v1
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: inventory-service
+  template:
+    metadata:
+      labels:
+        app: inventory-service
+        version: v1
+    spec:
+      containers:
+      - name: inventory-service
+        image: enterprise/inventory-service:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: "prod"
+        - name: DB_HOST
+          value: "postgres-service"
+        - name: DB_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: username
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: password
+        - name: REDIS_HOST
+          value: "redis-service"
+        - name: KAFKA_BROKERS
+          value: "kafka-service:9092"
+        - name: DYNATRACE_URL
+          valueFrom:
+            secretKeyRef:
+              name: dynatrace-secret
+              key: url
+        - name: DYNATRACE_API_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: dynatrace-secret
+              key: api-token
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        volumeMounts:
+        - name: app-config
+          mountPath: /app/config
+          readOnly: true
+      volumes:
+      - name: app-config
+        configMap:
+          name: inventory-service-config
+      imagePullSecrets:
+      - name: registry-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventory-service
+  namespace: inventory-system
+  labels:
+    app: inventory-service
+spec:
+  selector:
+    app: inventory-service
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: inventory-service-config
+  namespace: inventory-system
+data:
+  application-prod.yml: |
+    spring:
+      datasource:
+        hikari:
+          maximum-pool-size: 50
+          minimum-idle: 10
+      jpa:
+        show-sql: false
+        properties:
+          hibernate:
+            generate_statistics: false
+    management:
+      endpoints:
+        web:
+          exposure:
+            include: health,info,metrics
+      metrics:
+        export:
+          dynatrace:
+            v2:
+              metric-key-prefix: inventory.prod
+    logging:
+      level:
+        com.enterprise.inventory: INFO
+        org.hibernate.SQL: WARN
+

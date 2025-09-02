@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.enterprise</groupId>
+        <artifactId>inventory-management-system</artifactId>
+        <version>1.0.0</version>
+    </parent>
+
+    <artifactId>notification-service</artifactId>
+    <packaging>jar</packaging>
+
+    <name>Notification Service</name>
+    <description>Real-time notification service for inventory events</description>
+
+    <dependencies>
+        <!-- Shared Module -->
+        <dependency>
+            <groupId>com.enterprise</groupId>
+            <artifactId>shared</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+
+        <!-- Spring Boot Dependencies -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-websocket</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+
+        <!-- Database Dependencies -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+
+        <!-- Kafka Dependencies -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+        </dependency>
+
+        <!-- Redis for real-time notifications -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+
+        <!-- Testing Dependencies -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+
+            <!-- Flyway plugin for database migration -->
+            <plugin>
+                <groupId>org.flywaydb</groupId>
+                <artifactId>flyway-maven-plugin</artifactId>
+                <configuration>
+                    <driver>org.postgresql.Driver</driver>
+                    <url>jdbc:postgresql://localhost:5432/notification_db</url>
+                    <user>notification_user</user>
+                    <password>notification_pass</password>
+                    <schemas>
+                        <schema>notification</schema>
+                    </schemas>
+                    <locations>
+                        <location>classpath:db/migration</location>
+                    </locations>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

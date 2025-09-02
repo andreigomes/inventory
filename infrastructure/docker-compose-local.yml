@@ -1,0 +1,208 @@
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - inventory-network
+
+  # Kibana for log visualization
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.10.0
+    container_name: inventory-kibana
+    ports:
+      - "5601:5601"
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    depends_on:
+      - elasticsearch
+    networks:
+      - inventory-network
+
+  # Service Discovery (Consul)
+  consul:
+    image: consul:1.16
+    container_name: inventory-consul
+    ports:
+      - "8500:8500"
+      - "8600:8600/udp"
+    command: agent -server -bootstrap-expect=1 -client=0.0.0.0 -ui
+    networks:
+      - inventory-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  influxdb_data:
+  prometheus_data:
+  grafana_data:
+  elasticsearch_data:
+
+networks:
+  inventory-network:
+    driver: bridge
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: inventory-postgres
+    environment:
+      POSTGRES_DB: inventory_db
+      POSTGRES_USER: inventory_user
+      POSTGRES_PASSWORD: inventory_pass
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db-local.sql:/docker-entrypoint-initdb.d/init-db-local.sql
+    networks:
+      - inventory-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inventory_user -d inventory_db"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: inventory-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --requirepass redis_pass
+    volumes:
+      - redis_data:/data
+    networks:
+      - inventory-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Zookeeper for Kafka
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: inventory-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - inventory-network
+
+  # Kafka Message Broker
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: inventory-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "9101:9101"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_JMX_PORT: 9101
+      KAFKA_JMX_HOSTNAME: localhost
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    networks:
+      - inventory-network
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Kafka UI for monitoring
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: inventory-kafka-ui
+    depends_on:
+      - kafka
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    networks:
+      - inventory-network
+
+  # InfluxDB for metrics
+  influxdb:
+    image: influxdb:2.7-alpine
+    container_name: inventory-influxdb
+    ports:
+      - "8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: adminpass
+      DOCKER_INFLUXDB_INIT_ORG: inventory
+      DOCKER_INFLUXDB_INIT_BUCKET: metrics
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: my-super-secret-auth-token
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+    networks:
+      - inventory-network
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: inventory-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    networks:
+      - inventory-network
+
+  # Grafana for dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: inventory-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - inventory-network
+
+  # Jaeger for distributed tracing
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: inventory-jaeger
+    ports:
+      - "16686:16686"
+      - "14268:14268"
+    environment:
+      COLLECTOR_OTLP_ENABLED: true
+    networks:
+      - inventory-network
+
+  # Elasticsearch for logging
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.10.0
+    container_name: inventory-elasticsearch
