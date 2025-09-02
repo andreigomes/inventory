@@ -12,7 +12,7 @@ public class Store {
     private final String storeCode;
     private final String name;
     private final Address address;
-    private final StoreStatus status;
+    private StoreStatus status; // Removido final para permitir mudanças de status
     private final Instant createdAt;
     private Instant lastUpdated;
     private Long version;

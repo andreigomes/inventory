@@ -45,13 +45,15 @@ public class RequestLoggingFilter implements GlobalFilter, Ordered {
         logger.info("Incoming request: {} {} - Correlation ID: {}",
                    request.getMethod(), request.getURI(), correlationId);
 
+        final String finalCorrelationId = correlationId; // Make variable final for lambda
+
         return chain.filter(exchange.mutate().request(mutatedRequest).build())
                 .doFinally(signalType -> {
                     long startTime = (Long) exchange.getAttributes().get(REQUEST_START_TIME);
                     long duration = System.currentTimeMillis() - startTime;
 
                     logger.info("Request completed: {} {} - Duration: {}ms - Correlation ID: {}",
-                               request.getMethod(), request.getURI(), duration, correlationId);
+                               request.getMethod(), request.getURI(), duration, finalCorrelationId);
                 });
     }
 

@@ -60,7 +60,7 @@ public class DistributedTracing {
             return operation.execute(span);
         } catch (Exception e) {
             recordException(span, e);
-            throw e;
+            throw new RuntimeException(e);
         } finally {
             finishSpan(span);
         }

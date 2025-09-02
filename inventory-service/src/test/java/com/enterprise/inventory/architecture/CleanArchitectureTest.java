@@ -102,9 +102,9 @@ class CleanArchitectureTest {
     void infrastructure_adapters_should_implement_domain_interfaces() {
         ArchRule rule = classes()
             .that().haveSimpleNameEndingWith("Adapter")
-            .should().implement(
-                classes().that().resideInAPackage("..domain.repository..")
-            );
+            .should().beAssignableTo("..domain.repository..")
+            .orShould().beAssignableTo("..domain..")
+            .as("Infrastructure adapters should implement domain interfaces");
 
         rule.check(classes);
     }

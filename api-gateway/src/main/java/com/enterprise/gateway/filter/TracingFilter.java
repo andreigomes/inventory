@@ -1,11 +1,10 @@
 package com.enterprise.gateway.filter;
 
-import com.enterprise.shared.observability.DistributedTracing;
-import io.opentelemetry.api.trace.Span;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
@@ -23,55 +22,40 @@ public class TracingFilter implements GlobalFilter, Ordered {
     private static final String CORRELATION_ID_HEADER = "X-Correlation-ID";
     private static final String REQUEST_START_TIME = "request.start.time";
 
-    private final DistributedTracing distributedTracing;
-
-    public TracingFilter(DistributedTracing distributedTracing) {
-        this.distributedTracing = distributedTracing;
-    }
-
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
-        return distributedTracing.executeTraced("api-gateway-request", span -> {
-            // Add correlation ID if not present
-            String correlationId = exchange.getRequest().getHeaders().getFirst(CORRELATION_ID_HEADER);
-            if (correlationId == null) {
-                correlationId = UUID.randomUUID().toString();
-            }
+        // Add correlation ID if not present
+        String correlationId = exchange.getRequest().getHeaders().getFirst(CORRELATION_ID_HEADER);
+        if (correlationId == null) {
+            correlationId = UUID.randomUUID().toString();
+        }
 
-            // Add tracing attributes
-            span.setAttribute("http.method", exchange.getRequest().getMethod().name());
-            span.setAttribute("http.url", exchange.getRequest().getURI().toString());
-            span.setAttribute("correlation.id", correlationId);
-            span.setAttribute("client.ip", getClientIp(exchange));
+        // Store start time
+        exchange.getAttributes().put(REQUEST_START_TIME, Instant.now());
 
-            // Store start time
-            exchange.getAttributes().put(REQUEST_START_TIME, Instant.now());
+        final String finalCorrelationId = correlationId;
 
-            // Add correlation ID to response headers
-            return chain.filter(exchange.mutate()
-                .request(exchange.getRequest().mutate()
-                    .header(CORRELATION_ID_HEADER, correlationId)
-                    .build())
-                .response(exchange.getResponse().mutate()
-                    .header(CORRELATION_ID_HEADER, correlationId)
-                    .build())
+        return chain.filter(exchange.mutate()
+            .request(exchange.getRequest().mutate()
+                .header(CORRELATION_ID_HEADER, correlationId)
                 .build())
-                .doOnSuccess(aVoid -> {
-                    // Calculate request duration
-                    Instant startTime = exchange.getAttribute(REQUEST_START_TIME);
-                    if (startTime != null) {
-                        long duration = Instant.now().toEpochMilli() - startTime.toEpochMilli();
-                        span.setAttribute("request.duration.ms", duration);
-                    }
+            .build())
+            .doFinally(signalType -> {
+                // Add correlation ID to response headers
+                ServerHttpResponse response = exchange.getResponse();
+                response.getHeaders().add(CORRELATION_ID_HEADER, finalCorrelationId);
 
-                    span.setAttribute("http.status_code", exchange.getResponse().getStatusCode().value());
-                    span.setAttribute("response.success", exchange.getResponse().getStatusCode().is2xxSuccessful());
-                })
-                .doOnError(throwable -> {
-                    span.recordException(throwable);
-                    span.setAttribute("response.success", false);
-                });
-        });
+                // Calculate request duration
+                Instant startTime = exchange.getAttribute(REQUEST_START_TIME);
+                if (startTime != null) {
+                    long duration = Instant.now().toEpochMilli() - startTime.toEpochMilli();
+                    // Log duration for monitoring
+                    System.out.println("Request duration: " + duration + "ms");
+                }
+            })
+            .doOnError(throwable -> {
+                System.err.println("Request error: " + throwable.getMessage());
+            });
     }
 
     private String getClientIp(ServerWebExchange exchange) {

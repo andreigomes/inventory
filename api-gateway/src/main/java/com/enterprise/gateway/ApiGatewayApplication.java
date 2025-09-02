@@ -6,6 +6,9 @@ import org.springframework.cloud.gateway.route.RouteLocator;
 import org.springframework.cloud.gateway.route.builder.RouteLocatorBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
+import org.springframework.http.HttpMethod;
+
+import java.time.Duration;
 
 /**
  * Enterprise API Gateway Application.
@@ -38,8 +41,8 @@ public class ApiGatewayApplication {
                         .setFallbackUri("forward:/fallback/inventory"))
                     .retry(config -> config
                         .setRetries(3)
-                        .setMethods("GET")
-                        .setBackoff("exponential", "100ms", "1000ms", 2, true)))
+                        .setMethods(HttpMethod.GET)
+                        .setBackoff(Duration.ofMillis(100), Duration.ofSeconds(1), 2, true)))
                 .uri("${services.inventory.url:http://localhost:8080}"))
 
             // Store Service Routes

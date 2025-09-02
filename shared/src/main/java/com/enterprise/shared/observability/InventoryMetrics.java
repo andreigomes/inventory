@@ -18,6 +18,7 @@ public class InventoryMetrics {
 
     private final MeterRegistry meterRegistry;
     private final ConcurrentHashMap<String, AtomicInteger> inventoryLevels = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Counter> storeCounters = new ConcurrentHashMap<>();
 
     // Counters for business events
     private final Counter stockReservations;
@@ -78,36 +79,73 @@ public class InventoryMetrics {
     }
 
     public void recordStockReservation(String storeId) {
-        stockReservations.increment(
-            "store_id", storeId
+        // Increment base counter
+        stockReservations.increment();
+
+        // Create store-specific counter
+        Counter storeCounter = storeCounters.computeIfAbsent(
+            "reservations_" + storeId,
+            key -> Counter.builder("inventory.stock.reservations.by_store")
+                .description("Stock reservations by store")
+                .tag("store_id", storeId)
+                .register(meterRegistry)
         );
+        storeCounter.increment();
     }
 
     public void recordStockCommit(String storeId) {
-        stockCommits.increment(
-            "store_id", storeId
+        stockCommits.increment();
+
+        Counter storeCounter = storeCounters.computeIfAbsent(
+            "commits_" + storeId,
+            key -> Counter.builder("inventory.stock.commits.by_store")
+                .description("Stock commits by store")
+                .tag("store_id", storeId)
+                .register(meterRegistry)
         );
+        storeCounter.increment();
     }
 
     public void recordStockRelease(String storeId, String reason) {
-        stockReleases.increment(
-            "store_id", storeId,
-            "reason", reason
+        stockReleases.increment();
+
+        Counter storeCounter = storeCounters.computeIfAbsent(
+            "releases_" + storeId + "_" + reason,
+            key -> Counter.builder("inventory.stock.releases.by_store")
+                .description("Stock releases by store and reason")
+                .tag("store_id", storeId)
+                .tag("reason", reason)
+                .register(meterRegistry)
         );
+        storeCounter.increment();
     }
 
     public void recordSyncFailure(String storeId, String errorType) {
-        syncFailures.increment(
-            "store_id", storeId,
-            "error_type", errorType
+        syncFailures.increment();
+
+        Counter storeCounter = storeCounters.computeIfAbsent(
+            "sync_failures_" + storeId + "_" + errorType,
+            key -> Counter.builder("inventory.sync.failures.by_store")
+                .description("Sync failures by store and error type")
+                .tag("store_id", storeId)
+                .tag("error_type", errorType)
+                .register(meterRegistry)
         );
+        storeCounter.increment();
     }
 
     public void recordOversellEvent(String storeId, String productSku) {
-        oversellEvents.increment(
-            "store_id", storeId,
-            "product_sku", productSku
+        oversellEvents.increment();
+
+        Counter storeCounter = storeCounters.computeIfAbsent(
+            "oversell_" + storeId + "_" + productSku,
+            key -> Counter.builder("inventory.oversell.events.by_store")
+                .description("Oversell events by store and product")
+                .tag("store_id", storeId)
+                .tag("product_sku", productSku)
+                .register(meterRegistry)
         );
+        storeCounter.increment();
     }
 
     public Timer.Sample startStockReservationTimer() {
@@ -143,15 +181,19 @@ public class InventoryMetrics {
     public void updateInventoryLevel(String productSku, int level) {
         inventoryLevels.put(productSku, new AtomicInteger(level));
 
-        Gauge.builder("inventory.stock.level")
-            .description("Current stock level for product")
+        // Register gauge for this specific product - API correta
+        Gauge.builder("inventory.stock.level", inventoryLevels.get(productSku), AtomicInteger::doubleValue)
             .tag("product_sku", productSku)
-            .register(meterRegistry, productSku, key -> inventoryLevels.get(key).get());
+            .register(meterRegistry);
     }
 
     public void updateCacheHitRate(double hitRate) {
-        Gauge.builder("inventory.cache.hit.rate")
-            .description("Cache hit rate percentage")
-            .register(meterRegistry, hitRate, Double::doubleValue);
+        // Create a simple holder for the hit rate value
+        AtomicInteger hitRateHolder = new AtomicInteger((int)(hitRate * 100)); // Convert to percentage
+
+        // Register gauge with correct API
+        Gauge.builder("inventory.cache.hit.rate", hitRateHolder, value -> value.get() / 100.0)
+            .tag("service", "inventory")
+            .register(meterRegistry);
     }
 }
