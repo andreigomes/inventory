@@ -44,6 +44,10 @@ spring:
     validate-on-migrate: true
     clean-disabled: true  # Segurança: não permite limpar o banco em produção
 
+  # Observability Configuration
+  zipkin:
+    base-url: http://localhost:9411
+
   redis:
     host: ${REDIS_HOST:localhost}
     port: ${REDIS_PORT:6379}
@@ -71,6 +75,23 @@ spring:
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       auto-offset-reset: earliest
+
+# Management endpoints for observability
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus,info,trace
+  endpoint:
+    health:
+      show-details: always
+  tracing:
+    sampling:
+      probability: 1.0
+  metrics:
+    export:
+      prometheus:
+        enabled: true
 
 # Dynatrace Configuration
 management:
@@ -152,6 +173,11 @@ logging:
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
     file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  pattern:
+    level: '%5p [${spring.application.name:},%X{traceId:-},%X{spanId:-}]'
+  level:
+    com.enterprise: DEBUG
+    org.springframework.web: DEBUG
 
 ---
 spring:

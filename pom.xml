@@ -25,7 +25,6 @@
         <module>store-service</module>
         <module>notification-service</module>
         <module>api-gateway</module>
-        <module>observability</module>
     </modules>
 
     <build>

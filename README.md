@@ -328,3 +328,262 @@ export DYNATRACE_API_TOKEN=your-api-token
 - [ ] Advanced analytics dashboard
 
 Este sistema enterprise resolve definitivamente os problemas de consistência de inventário distribuído, garantindo performance, observabilidade e escalabilidade para operações de varejo críticas.
+
+## 🔍 **Observabilidade e Distributed Tracing**
+
+### **📊 Arquitetura de Observabilidade Auto-Gerenciada**
+
+Cada microsserviço é **auto-observável** e expõe suas próprias métricas, seguindo as melhores práticas de arquitetura distribuída:
+
+```
+📈 CADA MICROSSERVIÇO EXPÕE:
+├── /actuator/health - Health checks
+├── /actuator/metrics - Métricas Micrometer  
+├── /actuator/prometheus - Métricas para Prometheus
+├── /actuator/info - Informações da aplicação
+└── Logs com TraceID - Correlação distribuída
+```
+
+### **🔗 Distributed Tracing com TraceID**
+
+#### **Como Funciona:**
+Cada requisição recebe um **TraceID único** que acompanha toda a jornada entre microsserviços:
+
+```
+Cliente → API Gateway → Inventory Service → Store Service
+   │           │              │                │
+TraceID: abc123 │         TraceID: abc123  TraceID: abc123
+SpanID: 001     │         SpanID: 002      SpanID: 003
+```
+
+#### **Logs Correlacionados:**
+Todos os logs incluem TraceID para correlação:
+```
+INFO [inventory-service,abc123,002] - Processing inventory request for product SKU123
+INFO [store-service,abc123,003] - Checking availability in store SP-001
+INFO [notification-service,abc123,004] - Sending stock alert notification
+```
+
+#### **Busca por TraceID:**
+Para rastrear uma requisição específica:
+
+**1. Via Logs (Elasticsearch/Kibana):**
+```bash
+# Buscar todos os logs de uma requisição
+GET logs/_search
+{
+  "query": {
+    "match": {
+      "traceId": "abc123"
+    }
+  }
+}
+```
+
+**2. Via Zipkin (Interface Web):**
+```
+http://localhost:9411 → Search → "abc123"
+- Timeline visual completa
+- Latências entre serviços
+- Erros correlacionados
+```
+
+**3. Via Jaeger (Interface Web):**
+```
+http://localhost:16686 → Trace ID → "abc123"
+- Spans detalhados
+- Dependências entre serviços
+- Performance analysis
+```
+
+### **🛠️ Configuração de Observabilidade**
+
+#### **Stack de Observabilidade Disponível:**
+
+**Opção 1: Stack Open Source (Desenvolvimento)**
+```bash
+# Subir Zipkin para tracing
+docker run -d -p 9411:9411 openzipkin/zipkin
+
+# Subir Prometheus para métricas
+docker run -d -p 9090:9090 prom/prometheus
+
+# Subir Grafana para dashboards
+docker run -d -p 3000:3000 grafana/grafana
+```
+
+**Opção 2: Jaeger (Alternativa ao Zipkin)**
+```bash
+# Subir Jaeger all-in-one
+docker run -d \
+  -p 16686:16686 \
+  -p 14268:14268 \
+  jaegertracing/all-in-one:latest
+```
+
+**Opção 3: ELK Stack (Logs Centralizados)**
+```bash
+# Subir Elasticsearch + Kibana
+docker-compose -f observability/elk-stack.yml up -d
+```
+
+#### **Configuração nos Microsserviços:**
+
+Cada serviço já está configurado com:
+```yaml
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus,info,trace
+  tracing:
+    sampling:
+      probability: 1.0
+  zipkin:
+    base-url: http://localhost:9411
+
+logging:
+  pattern:
+    level: '%5p [${spring.application.name},%X{traceId:-},%X{spanId:-}]'
+```
+
+### **🔍 Como Usar o Distributed Tracing**
+
+#### **1. Subir Infraestrutura de Observabilidade:**
+```bash
+# Subir serviços de backend
+docker-compose -f docker-compose-local.yml up -d
+
+# Subir Zipkin para tracing
+docker run -d --name zipkin -p 9411:9411 openzipkin/zipkin
+
+# Verificar se está funcionando
+curl http://localhost:9411/health
+```
+
+#### **2. Iniciar Microsserviços:**
+```bash
+# Cada serviço automaticamente enviará traces para Zipkin
+mvn spring-boot:run -pl inventory-service
+mvn spring-boot:run -pl store-service  
+mvn spring-boot:run -pl notification-service
+mvn spring-boot:run -pl api-gateway
+```
+
+#### **3. Fazer Requisições e Rastrear:**
+```bash
+# Fazer uma requisição através do API Gateway
+curl -H "Content-Type: application/json" \
+     -X POST http://localhost:8000/api/v1/inventory/reserve \
+     -d '{
+       "storeId": "store-001",
+       "productSku": "PROD-123",
+       "quantity": 5
+     }'
+
+# Copiar o traceId do response header ou logs
+# Buscar no Zipkin: http://localhost:9411
+```
+
+#### **4. Análise de Performance:**
+No Zipkin, você verá:
+```
+📊 Timeline da Requisição:
+├── api-gateway: 2ms (routing)
+├── inventory-service: 45ms (database lookup)
+├── store-service: 23ms (validation)
+└── notification-service: 8ms (async notification)
+
+Total: 78ms
+```
+
+### **📈 Métricas Disponíveis**
+
+#### **Business Metrics (Cada Serviço):**
+```
+inventory.stock.reservations_total - Total de reservas
+inventory.stock.commits_total - Total de confirmações  
+inventory.stock.releases_total - Total de liberações
+inventory.cache.hit_rate - Taxa de acerto do cache
+inventory.sync.failures_total - Falhas de sincronização
+```
+
+#### **Technical Metrics:**
+```
+http_server_requests_seconds - Latência HTTP
+jvm_memory_used_bytes - Uso de memória JVM
+hikaricp_connections_active - Conexões DB ativas
+kafka_producer_record_send_total - Mensagens Kafka enviadas
+```
+
+#### **Health Checks:**
+```bash
+# Verificar saúde de cada serviço
+curl http://localhost:8080/actuator/health  # inventory-service
+curl http://localhost:8081/actuator/health  # store-service
+curl http://localhost:8082/actuator/health  # notification-service
+curl http://localhost:8000/actuator/health  # api-gateway
+```
+
+### **🚨 Monitoramento e Alertas**
+
+#### **Configuração de Alertas (Prometheus):**
+```yaml
+# prometheus-alerts.yml
+groups:
+  - name: inventory-alerts
+    rules:
+      - alert: HighErrorRate
+        expr: rate(http_server_requests_seconds_count{status=~"5.."}[5m]) > 0.1
+        for: 2m
+        annotations:
+          summary: "High error rate in {{ $labels.service }}"
+          
+      - alert: SlowResponse
+        expr: histogram_quantile(0.95, rate(http_server_requests_seconds_bucket[5m])) > 1
+        for: 5m
+        annotations:
+          summary: "Slow response time in {{ $labels.service }}"
+```
+
+#### **Dashboard Grafana:**
+Importe os dashboards pré-configurados:
+```
+- Spring Boot 2.1 System & JVM Metrics (ID: 11378)
+- Spring Boot Statistics (ID: 6756)  
+- Kafka Exporter Overview (ID: 7589)
+- PostgreSQL Database (ID: 9628)
+```
+
+### **🔧 Troubleshooting com TraceID**
+
+#### **Cenário: Requisição Lenta**
+```bash
+# 1. Identificar TraceID nos logs
+grep "SLOW" inventory-service.log
+# INFO [inventory-service,abc123,002] - SLOW QUERY detected: 2.3s
+
+# 2. Buscar trace completo no Zipkin
+http://localhost:9411 → "abc123"
+
+# 3. Identificar gargalo
+# - Database query: 2.1s (problema!)
+# - Redis cache: 0.1s  
+# - Kafka publish: 0.1s
+```
+
+#### **Cenário: Erro Distribuído**
+```bash
+# 1. TraceID no error log
+ERROR [store-service,xyz789,003] - Store not found: STORE-999
+
+# 2. Rastrear origem no Zipkin
+# - api-gateway: OK
+# - inventory-service: OK
+# - store-service: ERROR (store not found)
+
+# 3. Verificar dados
+# - Database: store STORE-999 não existe
+# - Solução: Corrigir dados ou validação
+```
+
